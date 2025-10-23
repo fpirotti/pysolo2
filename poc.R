@@ -67,20 +67,21 @@ for(countryn in countries){
   })
 
   city$score.suitability <- unlist(suit)
-  sf::write_sf(city, sprintf("%sSuitableCities2.gpkg", countryn))
+  # sf::write_sf(city, sprintf("%sSuitableCities2.gpkg", countryn))
 
   n <- length(city$score.suitability)
   weights <- city$score.suitability
   costsO <- (city$score.compDists + city$score.biorefDists + city$score.portsDists)
+  out_dir <- "images"
   #normalizzo
   costsO <- costsO / max(costsO)
   # hist(costsO)
   weights <- weights / max(weights)
   #hist(weights)
   output <- list(count=c(), totSuitability=c(), totCost=c() )
-  for(cost in 1:20/2){
+  for(cost in 1:20){
 
-    costs <- costsO * cost
+    costs <- costsO * cost / 4
 
     model <- MIPModel() %>%
       add_variable(x[i], i = 1:n, type = "binary") %>%
@@ -88,13 +89,32 @@ for(countryn in countries){
       # optionally: add_constraint(sum_expr(costs[i]*x[i], i = 1:n) <= B)
       solve_model(with_ROI(solver = "glpk"))
 
+    message("solution loop")
     solution <- get_solution(model, x[i]) #%>% filter(value > 0.5)
     city$selectedCities  <- solution$value
-    plot(city[,"selectedCities"] )
+    p <- ggplot(city[,"selectedCities"] ) +
+      geom_sf(size = 1, color="black") +
+      geom_sf(color = "#ff000055", size = 3) +
+      ggtitle(sprintf("x%d - N. Selected Cities = %d", cost,sum(city$selectedCities) )) +
+      theme_minimal() +
+      theme(legend.position = "none")
+
+    ggsave(
+      filename = sprintf("%s/frame_%03d.png", out_dir, cost),
+      plot = p,
+      width = 6, height = 5, dpi = 150
+    )
     output$count <- c(output$count, sum(city$selectedCities) )
     output$totSuitability <- c(output$totSuitability, sum(weights*city$selectedCities) )
-    output$totCost <- c(output$totCost, sum(costs) )
+    output$totCost <- c(output$totCost, sum(costs*city$selectedCities) )
+    message(sum(city$selectedCities))
   }
+
+  "ffmpeg -framerate 5 -i images/frame_%03d.png -pix_fmt yuv420p output.mp4"
+  ## numero di città candidate
+  plot(output$count)
+  plot(output$totSuitability)
+  plot(output$totCost)
 
   sf::write_sf(city, sprintf("%sSuitableCities.gpkg", countryn))
 
