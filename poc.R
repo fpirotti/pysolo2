@@ -22,9 +22,9 @@ biorefDist <- nabor::knn(sf::st_coordinates(biorefineries), sf::st_coordinates(c
 companiesDist <- nabor::knn(sf::st_coordinates(companies), sf::st_coordinates(cities), k=1)  # fast radius neighbors
 portsDist <- nabor::knn(sf::st_coordinates(ports), sf::st_coordinates(cities), k=1)  # fast radius neighbors
 
-cities$score.compDists <-  (1 / companiesDist$nn.dists^1)
-cities$score.biorefDists <-  (1 / biorefDist$nn.dists^1)
-cities$score.portsDists <-  (1 / portsDist$nn.dists^1)
+cities$score.compDists <-  companiesDist$nn.dists[,1]
+cities$score.biorefDists <- biorefDist$nn.dists[,1]
+cities$score.portsDists <-  portsDist$nn.dists[,1]
 
 
 pts <- list()
@@ -45,7 +45,7 @@ for(countryn in countries){
     save(pts, file="pts.rda")
   }
 
-  city <- cities |> filter(country==countryn) |> select(0)
+  city <- cities |> filter(country==countryn) |> select(3:7)
   city$cityId <- 1:nrow(city)
 
   vor <- sf::st_voronoi(st_union(city))
@@ -71,11 +71,16 @@ for(countryn in countries){
 
   n <- length(city$score.suitability)
   weights <- city$score.suitability
+  costsO <- (city$score.compDists + city$score.biorefDists + city$score.portsDists)
+  #normalizzo
+  costsO <- costsO / max(costsO)
+  # hist(costsO)
+  weights <- weights / max(weights)
+  #hist(weights)
+  output <- list(count=c(), totSuitability=c(), totCost=c() )
+  for(cost in 1:20/2){
 
-  q <- quantile(weights, c(0.05))
-  for(cost in 1:30*q){
-
-    costs <- rep(cost, length(city$score.suitability))
+    costs <- costsO * cost
 
     model <- MIPModel() %>%
       add_variable(x[i], i = 1:n, type = "binary") %>%
@@ -86,6 +91,9 @@ for(countryn in countries){
     solution <- get_solution(model, x[i]) #%>% filter(value > 0.5)
     city$selectedCities  <- solution$value
     plot(city[,"selectedCities"] )
+    output$count <- c(output$count, sum(city$selectedCities) )
+    output$totSuitability <- c(output$totSuitability, sum(weights*city$selectedCities) )
+    output$totCost <- c(output$totCost, sum(costs) )
   }
 
   sf::write_sf(city, sprintf("%sSuitableCities.gpkg", countryn))
