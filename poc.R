@@ -79,9 +79,9 @@ for(countryn in countries){
   weights <- weights / max(weights)
   #hist(weights)
   output <- list(count=c(), totSuitability=c(), totCost=c() )
-  for(cost in 1:20){
+  for(cost in 1:40){
 
-    costs <- costsO * cost / 4
+    costs <- costsO * cost / 10
 
     model <- MIPModel() %>%
       add_variable(x[i], i = 1:n, type = "binary") %>%
@@ -92,9 +92,9 @@ for(countryn in countries){
     message("solution loop")
     solution <- get_solution(model, x[i]) #%>% filter(value > 0.5)
     city$selectedCities  <- solution$value
-    p <- ggplot(city[,"selectedCities"] ) +
-      geom_sf(size = 1, color="black") +
-      geom_sf(color = "#ff000055", size = 3) +
+    p <- ggplot() +
+      geom_sf(data=city[city$selectedCities==0,"selectedCities"], size = 1, color="#00000044") +
+      geom_sf(data=city[city$selectedCities==1,"selectedCities"], color = "#ff000099", size = 3) +
       ggtitle(sprintf("x%d - N. Selected Cities = %d", cost,sum(city$selectedCities) )) +
       theme_minimal() +
       theme(legend.position = "none")
@@ -110,19 +110,32 @@ for(countryn in countries){
     message(sum(city$selectedCities))
   }
 
-  "ffmpeg -framerate 5 -i images/frame_%03d.png -pix_fmt yuv420p output.mp4"
   ## numero di città candidate
   plot(output$count)
-  plot(output$totSuitability)
-  plot(output$totCost)
-
+  png( sprintf("images/%s.png", countryn) )
+  plot( output$totSuitability,
+       main=sprintf("%s", countryn), xlab="N Cities"  )
+  points( output$totCost, col="red")
+  dev.off()
   sf::write_sf(city, sprintf("%sSuitableCities.gpkg", countryn))
 
 
 }
 
 
+library(magick)
 
+# Read all PNGs in order
+frames <- list.files(path = "images", pattern = "frame.*\\.png$", full.names = TRUE)
+imgs <- image_read(frames)
+imgs <- image_background(imgs, "white")
+imgs <- image_quantize(imgs, max = 16, colorspace = "gray")
+
+# Animate at 10 frames per second
+animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
+
+# Save the GIF
+image_write(animation, "animation.gif")
 
 km <- kmeans(sf::st_coordinates(city), centers = 5)
 city$cluster <- as.factor(km$cluster)
