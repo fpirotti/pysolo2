@@ -111,12 +111,42 @@ for(countryn in countries){
   }
 
   ## numero di città candidate
-  plot(output$count)
-  png( sprintf("images/%s.png", countryn) )
-  plot( output$totSuitability,
-       main=sprintf("%s", countryn), xlab="N Cities"  )
-  points( output$totCost, col="red")
-  dev.off()
+
+
+  # Create a data frame with both series
+  df <- data.frame(
+    Suitability = output$totSuitability,
+    Cost = output$totCost
+  )
+
+  # Build the plot
+  p <- ggplot(df, aes(x = seq_along(Suitability))) +
+    # Map color to a constant with a label
+    geom_line(aes(y = Suitability, color = "Total Suitability"),  linewidth = 1) +
+    geom_line(aes(y = Cost, color = "Total Cost"), size = 1) +
+    scale_color_manual(
+      name = NULL,
+      values = c("Total Suitability" = "#00000099", "Total Cost" = "#ff000099")
+    ) +
+    labs(
+      title = countryn,
+      y = "Total Gain vs Total Cost (unitless)",
+      x = "Increase in Unit Cost (unitless)"
+    ) +
+    theme_minimal(base_size = 14) +
+    theme(
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "top",
+      panel.grid.minor = element_blank()
+    )
+  ggsave(
+    filename = sprintf("%s.png", countryn),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300,
+    bg = "white"   # ensures no transparency
+  )
   sf::write_sf(city, sprintf("%sSuitableCities.gpkg", countryn))
 
 
@@ -139,14 +169,7 @@ image_write(animation, "animation.gif")
 
 km <- kmeans(sf::st_coordinates(city), centers = 5)
 city$cluster <- as.factor(km$cluster)
-for(k in levels(city$cluster)){
-  candidateCities <- city |> filter(cluster==k)
 
-
-
-
-
-}
 
 
 
