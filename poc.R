@@ -95,7 +95,7 @@ for(countryn in countries){
   #hist(weights)
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
-  for(cost in (1:40)*0.7){
+  for(cost in (1:43)*0.7){
     count <- count+1
     costs <- costsO * cost / 10
 
