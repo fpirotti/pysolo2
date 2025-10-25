@@ -110,7 +110,7 @@ for(countryn in countries){
     city$selectedCities  <- solution$value
     city[[sprintf("restrictionLevel%02d", count)]]  <- solution$value
     p <- ggplot() +
-      geom_sf(data=provs, aes( )) +
+      geom_sf(data=provs, fill = NA) +
       geom_spatraster(data = r, na.rm = T) +
       scale_fill_whitebox_c(
         palette = "viridi",
@@ -135,6 +135,7 @@ for(countryn in countries){
     message(sum(city$selectedCities))
   }
 
+  sf::write_sf(city, sprintf("%sSuitableCities.gpkg", countryn))
   ## numero di città candidate
 
 
@@ -173,7 +174,6 @@ for(countryn in countries){
     dpi = 300,
     bg = "white"   # ensures no transparency
   )
-  sf::write_sf(city, sprintf("%sSuitableCities.gpkg", countryn))
 
 
 }
