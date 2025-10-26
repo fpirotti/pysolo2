@@ -14,7 +14,7 @@ We start by assuming for the sake of starting the computation, by "reductio ad a
 
 The optimization function maximizes the combination of weighted benefits and costs by finding k cities by solving the following function:
 
-$\text{maximize}\quad \sum _{i=1}^{n}(g_{i}-l_{i})\cdot x_{i}$
+${maximize}\quad \sum _{i=1}^{n}(g_{i}-l_{i})\cdot x_{i}$
 
 $x_{i}\in \{0,1\}\quad \forall i\in \{1,\dots ,n\}$
 
@@ -32,6 +32,6 @@ $n$: The total number of cities to choose from.
 
 Note 1 - the gain and the part of the loss "*Dgr*" for each city is calculated from the sum of the normalized NDVI values inversely weighted with the cell distance from the roads.
 
-Note 2 - the normalized values scale wasin the range of 0-255 to be binned in integers to improve memory efficiency without significantly loosing precision.
+Note 2 - the normalized values scale was in the range of 0-255 in integers to improve memory efficiency without significantly loosing precision.
 
-The limitation is that the gain and the part of loss determined by distance from roads of cells is assigned to each cell, and each cell is assigned to the nearest city using the Voronoy spatialization. It is reasonable to think that in the case of two or three neighbouring cities close to each other where only one is selected, the cells assigned to the cities that were not selected would be assigned to the select city. This is not considered in this methods, due to the paradox that we can know that only after the optimization function selects the cities, and the we would have to re-assign the values of the gain due to more cells being added to the selected cities. We can argue that adding cells after the optimization would only potentially increase the gain, thus reinforce the decision.
+Note 3 - the limitation is that the gain and the part of loss determined by distance from roads of cells is assigned to each cell, and each cell is assigned to the nearest city using the Voronoy spatialization. It is reasonable to think that in the case of two or three neighbouring cities close to each other where only one is selected, the cells assigned to the cities that were not selected would be re-assigned to the select city. This is not considered in this procedure, due to the paradox that we know if cities are selected or not only after the optimization function is solved. We would have to re-assign the values of the gain due to more cells being added to the selected cities. We can reply that adding cells after the optimization would only potentially increase the gain, thus reinforce the decision.
