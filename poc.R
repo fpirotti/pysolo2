@@ -38,6 +38,7 @@ for(countryn in countries){
   r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
 
+  message(countryn)
 
   borders <- nuts |> filter(LEVL_CODE==0)
   provs <- nuts |> filter(LEVL_CODE==2) |>
@@ -67,11 +68,18 @@ for(countryn in countries){
 
   #sf::write_sf(vor_sf, "vor.sf.gpkg")
 
+  message("Intersection")
   pts_with_poly <- st_join(pts[[countryn]], vor_sf, join = st_intersects)
   # pts_with_poly
   sf_use_s2(F)
 
-  suit <- mclapply( city$cityId, function(id){
+  message("start lapply")
+  ncities <- length(city$cityId)
+  suit <- lapply( city$cityId, function(id){
+
+    if(id%%ncities==100){
+      print(sprintf("%d / %d", id,  ncities))
+    }
     ct <- city |> filter(cityId==id)
     pt <- pts_with_poly |> filter(cityId==id)
     w <- sf::st_distance(pt, ct)
@@ -95,6 +103,11 @@ for(countryn in countries){
   #hist(weights)
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
+  dirout <- sprintf("%s/%s", out_dir, countryn)
+  if(!dir.exists(dirout)){
+    dir.create(dirout)
+  }
+  message(countryn)
   for(cost in (1:43)*0.7){
     count <- count+1
     costs <- costsO * cost / 10
@@ -114,7 +127,6 @@ for(countryn in countries){
       geom_spatraster(data = r, na.rm = T) +
       scale_fill_whitebox_c(
         palette = "viridi",
-        labels = scales::label_number(suffix = "º"),
         n.breaks = 12,
         guide = guide_legend(reverse = TRUE)
       ) +
@@ -125,7 +137,7 @@ for(countryn in countries){
       theme(legend.position = "none")
 
     ggsave(
-      filename = sprintf("%s/frame_%03d.png", out_dir, count),
+      filename = sprintf("%s/frame_%03d.png", dirout, count),
       plot = p,
       width = 6, height = 5, dpi = 100
     )
