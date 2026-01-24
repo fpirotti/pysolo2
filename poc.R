@@ -32,8 +32,25 @@ load("pts.rda")
 countries <- unique(cities$country)
 ccode <- list("Spain"="ES", "Greece"="EL", "Italy"="IT")
 for(countryn in countries){
+  dirout <- sprintf("%s/%s", out_dir, countryn)
+  if(!dir.exists(dirout)){
+    dir.create(dirout)
+  }
+  message(countryn)
+  # Read all PNGs in order
+  frames <- list.files(path = dirout, pattern = "frame.*\\.png$", full.names = TRUE)
+  imgs <- image_read(frames)
+  imgs <- image_background(imgs, "white")
+  imgs <- image_quantize(imgs, max = 32, colorspace = "rgb")
 
-  if(countryn!="Spain") next
+  # Animate at 10 frames per second
+  animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
+
+  # Save the GIF
+  image_write(animation, sprintf("animation_%s.gif", countryn) )
+
+  next
+  # if(countryn!="Spain") next
 
   r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
@@ -103,11 +120,7 @@ for(countryn in countries){
   #hist(weights)
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
-  dirout <- sprintf("%s/%s", out_dir, countryn)
-  if(!dir.exists(dirout)){
-    dir.create(dirout)
-  }
-  message(countryn)
+
   for(cost in (1:43)*0.7){
     count <- count+1
     costs <- costsO * cost / 10
@@ -193,20 +206,9 @@ for(countryn in countries){
 
 library(magick)
 
-# Read all PNGs in order
-frames <- list.files(path = "images", pattern = "frame.*\\.png$", full.names = TRUE)
-imgs <- image_read(frames)
-imgs <- image_background(imgs, "white")
-imgs <- image_quantize(imgs, max = 32, colorspace = "rgb")
 
-# Animate at 10 frames per second
-animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
-
-# Save the GIF
-image_write(animation, "animation.gif")
-
-km <- kmeans(sf::st_coordinates(city), centers = 5)
-city$cluster <- as.factor(km$cluster)
+# km <- kmeans(sf::st_coordinates(city), centers = 5)
+# city$cluster <- as.factor(km$cluster)
 
 # system("ffmpeg -framerate 1 -i images/frame_%03d.png -pix_fmt yuv420p output.mp4")
 
