@@ -15,10 +15,7 @@ nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
 
 biorefineries <- sf::read_sf("data/Biorefineries.shp") #|> sf::st_transform(3035)
 companies <- sf::read_sf("data/Companies.shp")#|> sf::st_transform(3035)
-ports.es <- sf::read_sf("data/Ports_ES.shp")#|> sf::st_transform(3035)
-ports.it <- sf::read_sf("data/Ports_IT.shp")#|> sf::st_transform(3035)
-ports.gr <- sf::read_sf("data/Ports_GR.shp")#|> sf::st_transform(3035)
-ports<- do.call(rbind, list(ports.es, ports.it, ports.gr))
+ports <- sf::read_sf("data/Ports_ES.shp")#|> sf::st_transform(3035)
 
 maxDist <- 100000
 biorefDist <- nabor::knn(sf::st_coordinates(biorefineries), sf::st_coordinates(cities), k=1 )  # fast radius neighbors
@@ -38,6 +35,7 @@ for(countryn in countries){
 
   if(countryn!="Spain") next
 
+  r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
 
 
@@ -47,7 +45,6 @@ for(countryn in countries){
 
   provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
 
-  r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   if(is.null(pts[[countryn]])){
     r[r==0] <- NA
     r.df <- terra::as.data.frame(r, xy=T)
@@ -60,7 +57,9 @@ for(countryn in countries){
   city <- cities |> filter(country==countryn)
   city$cityId <- 1:nrow(city)
 
-  vor <- sf::st_voronoi(st_union(city))
+
+
+  vor <- sf::st_voronoi( st_union(city) |> sf::st_transform(3035)  ) |> sf::st_transform(4326)
   vor_sf <- st_collection_extract(vor)
   vor_sf <- st_sf(geometry = vor_sf)
 
@@ -69,9 +68,10 @@ for(countryn in countries){
   #sf::write_sf(vor_sf, "vor.sf.gpkg")
 
   pts_with_poly <- st_join(pts[[countryn]], vor_sf, join = st_intersects)
-  pts_with_poly
+  # pts_with_poly
   sf_use_s2(F)
-  suit <- lapply( city$cityId, function(id){
+
+  suit <- mclapply( city$cityId, function(id){
     ct <- city |> filter(cityId==id)
     pt <- pts_with_poly |> filter(cityId==id)
     w <- sf::st_distance(pt, ct)
