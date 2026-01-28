@@ -38,19 +38,30 @@ for(countryn in countries){
   }
   message(countryn)
   # Read all PNGs in order
-  frames <- list.files(path = dirout, pattern = "frame.*\\.png$", full.names = TRUE)
-  imgs <- image_read(frames)
-  imgs <- image_background(imgs, "white")
-  imgs <- image_quantize(imgs, max = 32, colorspace = "rgb")
-
-  # Animate at 10 frames per second
-  animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
+  # frames <- list.files(path = dirout, pattern = "frame.*\\.png$", full.names = TRUE)
+  # imgs <- image_read(frames)
+  # imgs <- image_background(imgs, "white")
+  # imgs <- image_quantize(imgs, max = 32, colorspace = "rgb")
+  #
+  # # Animate at 10 frames per second
+  # animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
 
   # Save the GIF
-  image_write(animation, sprintf("animation_%s.gif", countryn) )
+  # image_write(animation, sprintf("animation_%s.gif", countryn) )
 
-  next
+  # next
   # if(countryn!="Spain") next
+
+  city <- cities |> filter(country==countryn)
+  city$cityId <- 1:nrow(city)
+  message(nrow(city))
+
+
+  rDNI <- terra::rast(sprintf("data/DNI_%s.tif", countryn))
+  dniCity <- terra::extract(rDNI, city, ID=F)
+  city$dni <- dniCity[,1]
+  city <- city |> filter(dni>1000)
+  message(nrow(city))
 
   r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
@@ -71,9 +82,6 @@ for(countryn in countries){
     pts[[countryn]] <- r.df.sf
     save(pts, file="pts.rda")
   }
-
-  city <- cities |> filter(country==countryn)
-  city$cityId <- 1:nrow(city)
 
 
 
@@ -107,7 +115,7 @@ for(countryn in countries){
   })
 
   city$score.suitability <- unlist(suit)
-  # sf::write_sf(city, sprintf("%sSuitableCities2.gpkg", countryn))
+  sf::write_sf(city, sprintf("%s_cityScore.gpkg", countryn))
 
   n <- length(city$score.suitability)
   weights <- city$score.suitability
@@ -120,7 +128,7 @@ for(countryn in countries){
   #hist(weights)
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
-
+  df <- list()
   for(cost in (1:43)*0.7){
     count <- count+1
     costs <- costsO * cost / 10
@@ -165,43 +173,50 @@ for(countryn in countries){
 
 
   # Create a data frame with both series
-  df <- data.frame(
+  df[[countryn]] <- data.frame(
     Suitability = output$totSuitability,
-    Cost = output$totCost
-  )
-
-  # Build the plot
-  p <- ggplot(df, aes(x = seq_along(Suitability))) +
-    # Map color to a constant with a label
-    geom_line(aes(y = Suitability, color = "Total Suitability"),  linewidth = 1) +
-    geom_line(aes(y = Cost, color = "Total Cost"), size = 1) +
-    scale_color_manual(
-      name = NULL,
-      values = c("Total Suitability" = "#00000099", "Total Cost" = "#ff000099")
-    ) +
-    labs(
-      title = countryn,
-      y = "Total Gain vs Total Cost (unitless)",
-      x = "Increase in Unit Cost (unitless)"
-    ) +
-    theme_minimal(base_size = 14) +
-    theme(
-      plot.title = element_text(hjust = 0.5),
-      legend.position = "top",
-      panel.grid.minor = element_blank()
-    )
-
-  ggsave(
-    filename = sprintf("%s.png", countryn),
-    plot = p,
-    width = 7,
-    height = 5,
-    dpi = 300,
-    bg = "white"   # ensures no transparency
+    Cost = output$totCost,
+    Ncities=output$count
   )
 
 
 }
+
+dfFinal <- data.table::rbindlist(df, idcol = "Country")
+save(dfFinal, file="dfFinal.rda")
+# Build the plot
+p <- ggplot(dfFinal, aes(x = seq_along(Suitability))) +
+  # Map color to a constant with a label
+  geom_line(aes(y = Suitability, color = "Total Suitability"),  linewidth = 1) +
+  geom_line(aes(y = Cost, color = "Total Cost"),  linewidth = 1) +
+  geom_point(aes(x=Suitability, y = Cost, color = "Cost vs Suitability"), size = 1) +
+  scale_color_manual(
+    name = NULL,
+    values = c("Total Suitability" = "#00000099",
+               "Total Cost" = "#ff000099",
+               "Cost vs suitability" = "black")
+  ) +
+  labs(
+    title = countryn,
+    y = "Total Gain vs Total Cost (unitless)",
+    x = "Increase in Unit Cost (unitless)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "top",
+    panel.grid.minor = element_blank()
+  )
+
+p
+ggsave(
+  filename = sprintf("%s.png", countryn),
+  plot = p,
+  width = 7,
+  height = 5,
+  dpi = 300,
+  bg = "white"   # ensures no transparency
+)
 
 
 library(magick)
