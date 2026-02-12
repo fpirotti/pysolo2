@@ -7,9 +7,12 @@ library(ompr)
 library(ompr.roi)
 library(tidyterra)
 library(s2)
+library(magick)
+library(parallel)
+
 library(ROI.plugin.glpk)
 
-cities <- sf::read_sf("data/cities.gpkg") |> select(3) #|> sf::st_transform(3035)
+cities <- sf::read_sf("data/cities2.gpkg") #|> select(3) #|> sf::st_transform(3035)
 
 nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
 
@@ -26,11 +29,16 @@ cities$score.compDists <-  companiesDist$nn.dists[,1]
 cities$score.biorefDists <- biorefDist$nn.dists[,1]
 cities$score.portsDists <-  portsDist$nn.dists[,1]
 
+cities$name<-cities$name_2
 
 pts <- list()
 load("pts.rda")
-countries <- unique(cities$country)
+countries <- unique(cities$Country)
+
+df <- list()
 ccode <- list("Spain"="ES", "Greece"="EL", "Italy"="IT")
+
+out_dir <- "images"
 for(countryn in countries){
   dirout <- sprintf("%s/%s", out_dir, countryn)
   if(!dir.exists(dirout)){
@@ -43,16 +51,16 @@ for(countryn in countries){
   # imgs <- image_background(imgs, "white")
   # imgs <- image_quantize(imgs, max = 32, colorspace = "rgb")
   #
-  # # Animate at 10 frames per second
+  # # # Animate at 10 frames per second
   # animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
-
-  # Save the GIF
-  # image_write(animation, sprintf("animation_%s.gif", countryn) )
-
+  #
+  # # Save the GIF
+  # image_write(animation, sprintf("animation2_%s.gif", countryn) )
+  #
   # next
   # if(countryn!="Spain") next
 
-  city <- cities |> filter(country==countryn)
+  city <- cities |> filter(Country==countryn)
   city$cityId <- 1:nrow(city)
   message(nrow(city))
 
@@ -66,6 +74,7 @@ for(countryn in countries){
   r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
 
+  r[r==0] <- NA
   message(countryn)
 
   borders <- nuts |> filter(LEVL_CODE==0)
@@ -100,19 +109,22 @@ for(countryn in countries){
 
   message("start lapply")
   ncities <- length(city$cityId)
-  suit <- lapply( city$cityId, function(id){
 
-    if(id%%ncities==100){
+  suit <- lapply( city$cityId, function(id){
+    # browser()
+    if(id%%(ncities/100)==0){
       print(sprintf("%d / %d", id,  ncities))
     }
     ct <- city |> filter(cityId==id)
     pt <- pts_with_poly |> filter(cityId==id)
-    w <- sf::st_distance(pt, ct)
-    w <- as.numeric(w)
-    w[ w == 0] <- 1e6
-    w <- 1 / (w^1)
+    dist<- sf::st_distance(pt, ct)
+    dist <- as.numeric(dist)
+    if(sum(dist == 0)>0){
+      dist[ dist == 0] <- 1e6
+    }
+    w <- 1 / (dist^1)
     sum(pt$mean * w)
-  })
+  } ) #, mc.cores=100)
 
   city$score.suitability <- unlist(suit)
   sf::write_sf(city, sprintf("%s_cityScore.gpkg", countryn))
@@ -120,16 +132,18 @@ for(countryn in countries){
   n <- length(city$score.suitability)
   weights <- city$score.suitability
   costsO <- (city$score.compDists + city$score.biorefDists + city$score.portsDists)
-  out_dir <- "images"
   #normalizzo
   costsO <- costsO / max(costsO)
   # hist(costsO)
   weights <- weights / max(weights)
   #hist(weights)
+  city$gains <- weights
+  city$losses <- costsO
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
-  df <- list()
-  for(cost in (1:43)*0.7){
+
+
+  for(cost in (1:50)){
     count <- count+1
     costs <- costsO * cost / 10
 
@@ -153,12 +167,12 @@ for(countryn in countries){
       ) +
       geom_sf(data=city[city$selectedCities==0,"selectedCities"], size = 0.5, color="#000000") +
       geom_sf(data=city[city$selectedCities==1,"selectedCities"], fill=NA, color = "#ff000099", size = 3) +
-      ggtitle(sprintf("x%d - N. Selected Cities = %d", count,sum(city$selectedCities) )) +
+      ggtitle(sprintf("Unit cost=%02d - N. Selected Cities=%d", count-1, sum(city$selectedCities) )) +
       theme_minimal() +
       theme(legend.position = "none")
 
     ggsave(
-      filename = sprintf("%s/frame_%03d.png", dirout, count),
+      filename = sprintf("%s/frame_%02d.png", dirout, count),
       plot = p,
       width = 6, height = 5, dpi = 100
     )
@@ -183,24 +197,32 @@ for(countryn in countries){
 }
 
 dfFinal <- data.table::rbindlist(df, idcol = "Country")
-save(dfFinal, file="dfFinal.rda")
+dfFinal$ratio <- dfFinal$Suitability/dfFinal$Cost
+
+dfFinal <- dfFinal |> dplyr::group_by(Country) |>
+  dplyr::mutate(UnitCost = row_number(),
+                NcitiesNorm = Ncities/max(Ncities)*100,
+                CostNorm = Cost/max(Cost)*100,
+                SuitabilityNorm = Suitability/max(Suitability)*100,
+                title = sprintf("%s (%d cities near biomass)", Country, max(Ncities)))
+
+# dfFinal$UnitCost <- 0:(nrow(dfFinal)-1)%%43
+
+# save(dfFinal, file="dfFinal.rda")
+
 # Build the plot
-p <- ggplot(dfFinal, aes(x = seq_along(Suitability))) +
+p1 <- ggplot(dfFinal ) +
   # Map color to a constant with a label
-  geom_line(aes(y = Suitability, color = "Total Suitability"),  linewidth = 1) +
-  geom_line(aes(y = Cost, color = "Total Cost"),  linewidth = 1) +
-  geom_point(aes(x=Suitability, y = Cost, color = "Cost vs Suitability"), size = 1) +
-  scale_color_manual(
-    name = NULL,
-    values = c("Total Suitability" = "#00000099",
-               "Total Cost" = "#ff000099",
-               "Cost vs suitability" = "black")
-  ) +
+  # geom_line(aes(y = Suitability, color = "Total Suitability"),  linewidth = 1) +
+  # geom_line(aes(x=UnitCost, y = ratio, color = "Total Cost"),  linewidth = 1) +
+  geom_col(width = 0.7, fill = "grey30", aes(x=UnitCost, y=NcitiesNorm)) +
+  facet_wrap(vars(title), nrow=3) +
+
   labs(
-    title = countryn,
-    y = "Total Gain vs Total Cost (unitless)",
-    x = "Increase in Unit Cost (unitless)"
+    y = "% of total cities",
+    x = "Increase in Unit Cost"
   ) +
+  coord_cartesian(xlim = c(0, 30)) +
   theme_minimal(base_size = 14) +
   theme(
     plot.title = element_text(hjust = 0.5),
@@ -208,18 +230,47 @@ p <- ggplot(dfFinal, aes(x = seq_along(Suitability))) +
     panel.grid.minor = element_blank()
   )
 
-p
+
 ggsave(
-  filename = sprintf("%s.png", countryn),
-  plot = p,
+  filename = sprintf("Cities.png"),
+  plot = p1,
   width = 7,
-  height = 5,
+  height = 7,
   dpi = 300,
   bg = "white"   # ensures no transparency
 )
 
 
-library(magick)
+p2 <- ggplot(dfFinal ) +
+
+  geom_col(width = 0.7, fill = "grey30", alpha = 0.6, aes(x=UnitCost, y=NcitiesNorm, fill="% of cities")) +
+  geom_line(aes(x=UnitCost, y = SuitabilityNorm , color = "Total Gain (normalized)"),  linewidth = 1) +
+  geom_line(aes(x=UnitCost, y = CostNorm, color = "Total Loss (normalized)"),  linewidth = 1) +
+  # geom_line(aes(x=UnitCost, y = UnitCost/30*100, color = "UnitCost Loss"),  linewidth = 1) +
+   # geom_line(aes(x=UnitCost, y = ratio*10, color = "Ratio"),  linewidth = 1) +
+  facet_wrap(vars(title), nrow=3, scales ="free_y") +
+
+  labs(
+    y = "Normalized Value",
+    x = "Unit Cost (UCpp)"
+  ) +
+  coord_cartesian(xlim = c(0, 20)) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    legend.position = "top",
+    panel.grid.minor = element_blank()
+  )
+p2
+ggsave(
+  filename = sprintf("Ratio.png"),
+  plot = p2,
+  width = 6,
+  height = 8,
+  dpi = 300,
+  bg = "white"   # ensures no transparency
+)
+
 
 
 # km <- kmeans(sf::st_coordinates(city), centers = 5)
