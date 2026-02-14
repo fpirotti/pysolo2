@@ -1,21 +1,24 @@
 The problem to solve is to select the optimal cities were to collect residual biomass from specific types of crops: vineyards and olive orchards.
 
-First of all we apply two conditional filters with a binary threshold. A city is
+First of all we apply two conditional filters with a binary threshold. A city is selected as potential host of a pysolo plant if it succeeds in the passing the following filter\_
 
 $$
 y =\begin{cases}1 & \text{if } x_1 \geq T_1 \;\text{and}\; x_2 \geq T_2 \\0 & \text{otherwise}\end{cases}
 $$
 
-Choosing a specific city implies specific advantages and disadvantages, (also referred to as gains and losses) when referring to an optimization strategy. The following factors have an impact which has a spatial connotation:
+where y=city, 1=possible city (selected) and 0=not candidate city., T1 is a DNI criteria with value of 1000 XXX, and T2 is if it has nearby available residual biomass sources above zero, according to the Voronoy polygons in figure below.
+
+After such pass/no-pass filter, remaining cities where further selected using different weights. The weight implies specific advantages and disadvantages, (also referred to as gains and losses) when referring to an optimization strategy. The following factors have an impact which has a spatial connotation regarding distance:
 
 -   **D~cb~** - distance of the city to the nearest biomass plant: having a biomass plant close to the city is actually a negative aspect as biomass plants compete for biomass resources. - thus a direct positive correlation of suitability of the city with distance from existing biomass plants.
 -   **D~cr~** - distance of the city to the nearest refinery: refineries imply an infrastructure for distribution of energy resources, thus the closer an existing refinery is, the better it is for the city. Therefore there is an inverse correlation with distance, i.e. less distance with a refinery is better.
 -   **D~cc~** -distance of the city to the nearest company: the same as above, having a company close-by is a positive asset, therefore we have an inverse correlation with distance - i.e. the more distant an existing compay is the less suitable that city is.
 -   **D~cp~** -distance of the city to the nearest ports: the same as the two point just above. A nearby port is a positive asset of the city as transportation to other users of bioenergy is easier.
 
-All the above provide an initial "weight" to each cities.
+All the above provide an initial "weight" to each city which then is assigned a number of cells from the suitability raster of each potential biomass resource from Olive and Vineyards. The suitability of each cell is defined as mentioned in the work of Kutchartt et al. [] as the following:
 
--   
+-   relative NDVI value: NDVI is highly related to biomass, especially in the lower values, as agriculture, as it is far from the saturation seen in the forestry context. So we can assume that higher NDVI implies higher biomass and thus higher residual biomass. Of course this is an assumption, but it is well documented in scientific literature (here to mention important biomass vs ndvi papers) .
+-   s
 
 We first proceed to defining the location of vineyards and olive orchards using CORINE Land Cover at 100 m from 2018. The new High Resolution Land Cover Plus at 10 m resolution could potentially be used, but it should be noted that at 100 m Spain will have about 3.3E6 cells with such land cover, therefore at 10 m we would expect 100x more, making the computation more complex. This can be addressed in the future, for now we will test the method with 100 m pixels.
 
