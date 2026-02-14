@@ -1,12 +1,20 @@
-The problem to solve is to select the optimal cities were to collect residual biomass from specific types of crops: wineyards and olive orchards.
+The problem to solve is to select the optimal cities were to collect residual biomass from specific types of crops: vineyards and olive orchards.
+
+First of all we apply two conditional filters with a binary threshold. A city is
+
+$$
+y =\begin{cases}1 & \text{if } x_1 \geq T_1 \;\text{and}\; x_2 \geq T_2 \\0 & \text{otherwise}\end{cases}
+$$
 
 Choosing a specific city implies specific advantages and disadvantages, (also referred to as gains and losses) when referring to an optimization strategy. The following factors have an impact which has a spatial connotation:
 
 -   **D~cb~** - distance of the city to the nearest biomass plant: having a biomass plant close to the city is actually a negative aspect as biomass plants compete for biomass resources. - thus a direct positive correlation of suitability of the city with distance from existing biomass plants.
--   **D~cr~** - distance of the city to the nearest refinery: refineries imply an infrastructure for distribution of energy resources, thus the closer an exisitng refinery is, the better it is for the city. Therefore there is an inverse correlation with distance, i.e. less distance with a refinery is better.
+-   **D~cr~** - distance of the city to the nearest refinery: refineries imply an infrastructure for distribution of energy resources, thus the closer an existing refinery is, the better it is for the city. Therefore there is an inverse correlation with distance, i.e. less distance with a refinery is better.
 -   **D~cc~** -distance of the city to the nearest company: the same as above, having a company close-by is a positive asset, therefore we have an inverse correlation with distance - i.e. the more distant an existing compay is the less suitable that city is.
 -   **D~cp~** -distance of the city to the nearest ports: the same as the two point just above. A nearby port is a positive asset of the city as transportation to other users of bioenergy is easier.
--   **D~cp~** -distance of the city to the nearest ports (more distant is worse)
+
+All the above provide an initial "weight" to each cities.
+
 -   
 
 We first proceed to defining the location of vineyards and olive orchards using CORINE Land Cover at 100 m from 2018. The new High Resolution Land Cover Plus at 10 m resolution could potentially be used, but it should be noted that at 100 m Spain will have about 3.3E6 cells with such land cover, therefore at 10 m we would expect 100x more, making the computation more complex. This can be addressed in the future, for now we will test the method with 100 m pixels.
