@@ -1,0 +1,28 @@
+<VRTDataset rasterXSize="43356" rasterYSize="13678">
+  <SRS dataAxisToSRSAxisMapping="2,1">GEOGCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563,AUTHORITY["EPSG","7030"]],AUTHORITY["EPSG","6326"]],PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],AXIS["Latitude",NORTH],AXIS["Longitude",EAST],AUTHORITY["EPSG","4326"]]</SRS>
+  <GeoTransform> -9.3002581364894059e+00,  8.9831528411952154e-04,  0.0000000000000000e+00,  4.7095975400534158e+01,  0.0000000000000000e+00, -8.9831528411952154e-04</GeoTransform>
+  <VRTRasterBand dataType="Byte" band="1">
+    <ColorInterp>Gray</ColorInterp>
+    <SimpleSource resampling="nearest">
+      <SourceFilename relativeToVRT="1">AgriSuitabilitPysolo_Greece.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SourceProperties RasterXSize="11436" RasterYSize="7736" DataType="Byte" BlockXSize="256" BlockYSize="256" />
+      <SrcRect xOff="0" yOff="0" xSize="11436" ySize="7736" />
+      <DstRect xOff="31920" yOff="5942" xSize="11436" ySize="7736" />
+    </SimpleSource>
+    <SimpleSource resampling="nearest">
+      <SourceFilename relativeToVRT="1">AgriSuitabilitPysolo_Italy.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SourceProperties RasterXSize="13247" RasterYSize="12918" DataType="Byte" BlockXSize="256" BlockYSize="256" />
+      <SrcRect xOff="0" yOff="0" xSize="13247" ySize="12918" />
+      <DstRect xOff="17716" yOff="0" xSize="13247" ySize="12918" />
+    </SimpleSource>
+    <SimpleSource resampling="nearest">
+      <SourceFilename relativeToVRT="1">AgriSuitabilitPysolo_Spain.tif</SourceFilename>
+      <SourceBand>1</SourceBand>
+      <SourceProperties RasterXSize="14138" RasterYSize="9025" DataType="Byte" BlockXSize="256" BlockYSize="256" />
+      <SrcRect xOff="0" yOff="0" xSize="14138" ySize="9025" />
+      <DstRect xOff="0" yOff="3472" xSize="14138" ySize="9025" />
+    </SimpleSource>
+  </VRTRasterBand>
+</VRTDataset>
