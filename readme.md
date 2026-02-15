@@ -1,3 +1,7 @@
+---
+---
+---
+
 The problem to solve is to select the optimal cities were to collect residual biomass from specific types of crops: vineyards and olive orchards.
 
 First of all we apply two conditional filters with a binary threshold. A city is selected as potential host of a pysolo plant if it succeeds in the passing the following filter\_
@@ -6,7 +10,9 @@ $$
 y =\begin{cases}1 & \text{if } x_1 \geq T_1 \;\text{and}\; x_2 \geq T_2 \\0 & \text{otherwise}\end{cases}
 $$
 
-where y is either 1=possible (selected) city or 0=not candidate city. $$T_1$$ is Direct Normal Irradiance (DNI) threshold criteria of 1000 $$W/m^2$$ per year and $$T_2$$ is if it has nearby available residual biomass sources above zero, according to the Voronoy polygons in figure below.
+where y is either 1=possible (selected) city or 0=not candidate city.
+
+$T_1$ is Direct Normal Irradiance (DNI) threshold criteria of 1000 $W/m^2$ per year and $T_2$ is if it has nearby available residual biomass sources above zero, according to the Voronoy polygons in figure below.
 
 ![](images/clipboard-54604711.png)
 
