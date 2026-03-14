@@ -64,84 +64,122 @@ for(countryn in countries){
   city$cityId <- 1:nrow(city)
   message(nrow(city))
 
+  if(!file.exists(sprintf("%s_cityScore.gpkg", countryn))){
 
-  rDNI <- terra::rast(sprintf("data/DNI_%s.tif", countryn))
-  dniCity <- terra::extract(rDNI, city, ID=F)
-  city$dni <- dniCity[,1]
-  city <- city |> filter(dni>1000)
-  message(nrow(city))
+    rDNI <- terra::rast(sprintf("data/DNI_%s.tif", countryn))
+    dniCity <- terra::extract(rDNI, city, ID=F)
+    city$dni <- dniCity[,1]
+    city <- city |> filter(dni>1000)
+    message(nrow(city))
 
-  r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
-  r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
+    r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
+    r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
 
-  r[r==0] <- NA
-  message(countryn)
-
-  borders <- nuts |> filter(LEVL_CODE==0)
-  provs <- nuts |> filter(LEVL_CODE==2) |>
-    filter(CNTR_CODE==ccode[[countryn]])
-
-  provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
-
-  if(is.null(pts[[countryn]])){
     r[r==0] <- NA
-    r.df <- terra::as.data.frame(r, xy=T)
-    r.df.sf <- sf::st_as_sf(r.df,coords = c("x", "y"))
-    sf::st_crs(r.df.sf) <- terra::crs(r)
-    pts[[countryn]] <- r.df.sf
-    save(pts, file="pts.rda")
+    message(countryn)
+
+
+
+    borders <- nuts |> filter(LEVL_CODE==0)
+    provs <- nuts |> filter(LEVL_CODE==2) |>
+      filter(CNTR_CODE==ccode[[countryn]])
+
+    provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
+
+    if(is.null(pts[[countryn]])){
+      r[r==0] <- NA
+      r.df <- terra::as.data.frame(r, xy=T)
+      r.df.sf <- sf::st_as_sf(r.df,coords = c("x", "y"))
+      sf::st_crs(r.df.sf) <- terra::crs(r)
+      pts[[countryn]] <- r.df.sf
+      save(pts, file="pts.rda")
+    }
+
+
+
+    vor <- sf::st_voronoi( st_union(city) |> sf::st_transform(3035)  ) |> sf::st_transform(4326)
+    vor_sf <- st_collection_extract(vor)
+    vor_sf <- st_sf(geometry = vor_sf)
+
+    vor_sf <- st_join(vor_sf, city, join = st_intersects)
+
+    #sf::write_sf(vor_sf, "vor.sf.gpkg")
+
+    message("Intersection")
+    pts_with_poly <- st_join(pts[[countryn]], vor_sf, join = st_intersects)
+    # pts_with_poly
+    sf_use_s2(F)
+
+    message("start lapply")
+    ncities <- length(city$cityId)
+
+    suit <- lapply( city$cityId, function(id){
+      # browser()
+      if(id%%(ncities/100)==0){
+        print(sprintf("%d / %d", id,  ncities))
+      }
+      ct <- city |> filter(cityId==id)
+      pt <- pts_with_poly |> filter(cityId==id)
+      dist<- sf::st_distance(pt, ct)
+      dist <- as.numeric(dist)
+      if(sum(dist == 0)>0){
+        dist[ dist == 0] <- 1e6
+      }
+      w <- 1 / (dist^1)
+      sum(pt$mean * w)
+    } ) #, mc.cores=100)
+
+    city$score.suitability <- unlist(suit)
+    sf::write_sf(city, sprintf("%s_cityScore.gpkg", countryn))
+  } else {
+    city <- sf::read_sf(sprintf("%s_cityScore.gpkg", countryn))
   }
-
-
-
-  vor <- sf::st_voronoi( st_union(city) |> sf::st_transform(3035)  ) |> sf::st_transform(4326)
-  vor_sf <- st_collection_extract(vor)
-  vor_sf <- st_sf(geometry = vor_sf)
-
-  vor_sf <- st_join(vor_sf, city, join = st_intersects)
-
-  #sf::write_sf(vor_sf, "vor.sf.gpkg")
-
-  message("Intersection")
-  pts_with_poly <- st_join(pts[[countryn]], vor_sf, join = st_intersects)
-  # pts_with_poly
-  sf_use_s2(F)
-
-  message("start lapply")
-  ncities <- length(city$cityId)
-
-  suit <- lapply( city$cityId, function(id){
-    # browser()
-    if(id%%(ncities/100)==0){
-      print(sprintf("%d / %d", id,  ncities))
-    }
-    ct <- city |> filter(cityId==id)
-    pt <- pts_with_poly |> filter(cityId==id)
-    dist<- sf::st_distance(pt, ct)
-    dist <- as.numeric(dist)
-    if(sum(dist == 0)>0){
-      dist[ dist == 0] <- 1e6
-    }
-    w <- 1 / (dist^1)
-    sum(pt$mean * w)
-  } ) #, mc.cores=100)
-
-  city$score.suitability <- unlist(suit)
-  sf::write_sf(city, sprintf("%s_cityScore.gpkg", countryn))
 
   n <- length(city$score.suitability)
   weights <- city$score.suitability
   costsO <- (city$score.compDists + city$score.biorefDists + city$score.portsDists)
   #normalizzo
   costsO <- costsO / max(costsO)
-  # hist(costsO)
   weights <- weights / max(weights)
-  #hist(weights)
   city$gains <- weights
   city$losses <- costsO
+
+  score_fun4SANN <- function(cityid) {
+    cc<-city |> filter(cityId==cityid)
+    d <- as.matrix(dist(st_coordinates(cc)))
+    d[upper.tri(d, diag=TRUE)] <- NA
+    penaltyd <- sum(d/1000 < 100, na.rm=TRUE)
+    score <- sum(cc$gains)
+    penalty <- sum(cc$losses)
+    fina <- score*10  - (penalty+penaltyd/max(penaltyd))
+    message(nrow(cc))
+    message(fina)
+    fina
+  }
+
+  # hist(costsO)
+  #hist(weights)
+
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
+  k <- 10
+  init <- sample(1:nrow(city), k)
+  prop <- function(par){
+    new <- par
+    i <- sample(length(par),1)
+    new[i] <- sample(1:nrow(city),1)
+    new
+  }
+  res <- optim(
+    par = init,
+    fn = function(x) -score_fun4SANN(round(x)),
+    gr = prop,
+    method = "SANN",
+    control = list(maxit = 10000, temp=5)
+  )
+  opt_coords <- matrix(res$par, ncol=2, byrow=TRUE)
 
+  opt_pts <- vect(opt_coords, type="points", crs=crs(r))
 
   for(cost in (1:50)){
     count <- count+1
@@ -247,7 +285,7 @@ p2 <- ggplot(dfFinal ) +
   geom_line(aes(x=UnitCost, y = SuitabilityNorm , color = "Total Gain (normalized)"),  linewidth = 1) +
   geom_line(aes(x=UnitCost, y = CostNorm, color = "Total Loss (normalized)"),  linewidth = 1) +
   # geom_line(aes(x=UnitCost, y = UnitCost/30*100, color = "UnitCost Loss"),  linewidth = 1) +
-   # geom_line(aes(x=UnitCost, y = ratio*10, color = "Ratio"),  linewidth = 1) +
+  # geom_line(aes(x=UnitCost, y = ratio*10, color = "Ratio"),  linewidth = 1) +
   facet_wrap(vars(title), nrow=3, scales ="free_y") +
 
   labs(
