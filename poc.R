@@ -63,7 +63,13 @@ for(countryn in countries){
   city <- cities |> filter(Country==countryn)
   city$cityId <- 1:nrow(city)
   message(nrow(city))
+  borders <- nuts |> filter(LEVL_CODE==0)
+  provs <- nuts |> filter(LEVL_CODE==2) |>
+    filter(CNTR_CODE==ccode[[countryn]])
 
+  r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
+  r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
+  provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
   if(!file.exists(sprintf("%s_cityScore.gpkg", countryn))){
 
     rDNI <- terra::rast(sprintf("data/DNI_%s.tif", countryn))
@@ -72,19 +78,13 @@ for(countryn in countries){
     city <- city |> filter(dni>1000)
     message(nrow(city))
 
-    r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
-    r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
 
     r[r==0] <- NA
     message(countryn)
 
 
 
-    borders <- nuts |> filter(LEVL_CODE==0)
-    provs <- nuts |> filter(LEVL_CODE==2) |>
-      filter(CNTR_CODE==ccode[[countryn]])
 
-    provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
 
     if(is.null(pts[[countryn]])){
       r[r==0] <- NA
@@ -143,17 +143,22 @@ for(countryn in countries){
   weights <- weights / max(weights)
   city$gains <- weights
   city$losses <- costsO
-
+  history <- list()
+  iter <- 1
   score_fun4SANN <- function(cityid) {
-    cc<-city |> filter(cityId==cityid)
+    cc<-city |> filter(cityId%in%cityid)
+
     d <- as.matrix(dist(st_coordinates(cc)))
     d[upper.tri(d, diag=TRUE)] <- NA
     penaltyd <- sum(d/1000 < 100, na.rm=TRUE)
     score <- sum(cc$gains)
     penalty <- sum(cc$losses)
     fina <- score*10  - (penalty+penaltyd/max(penaltyd))
-    message(nrow(cc))
-    message(fina)
+    cc$score <- fina
+    history[[iter]] <<- cc[,c("cityId","score")]
+    iter <<- iter + 1
+    # message(nrow(cc))
+    # message(fina)
     fina
   }
 
@@ -162,7 +167,7 @@ for(countryn in countries){
 
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
-  k <- 10
+  k <- 30
   init <- sample(1:nrow(city), k)
   prop <- function(par){
     new <- par
@@ -170,13 +175,43 @@ for(countryn in countries){
     new[i] <- sample(1:nrow(city),1)
     new
   }
+  history <- list()
+  iter <- 1
   res <- optim(
     par = init,
     fn = function(x) -score_fun4SANN(round(x)),
     gr = prop,
     method = "SANN",
-    control = list(maxit = 10000, temp=5)
+    control = list(maxit = 10000, temp=50)
   )
+
+  ########## plot ----
+  frames <- data.table::rbindlist(history,idcol = "iter")
+
+  library(ggplot2)
+  library(gganimate)
+  frames <- sf::st_set_geometry(frames, value = frames$geom)
+  frames$iter <- as.numeric(frames$iter)
+
+
+  library(viridis)
+  p <- ggplot() +
+    geom_sf(data =  provs,    fill = NA) +
+    geom_sf(data = frames ,
+               # aes(x=x, y=y),
+            aes(color = score),
+               size=2) +
+    scale_color_viridis(option = "turbo") +
+    coord_sf() +
+    theme_minimal()+
+    transition_manual(iter) +
+    shadow_null()
+
+  animate(p, fps=15,
+          width = 800,
+          height = 600,
+          renderer = ffmpeg_renderer("optimization.mp4") )
+
   opt_coords <- matrix(res$par, ncol=2, byrow=TRUE)
 
   opt_pts <- vect(opt_coords, type="points", crs=crs(r))
