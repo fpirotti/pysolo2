@@ -68,6 +68,7 @@ for(countryn in countries){
     filter(CNTR_CODE==ccode[[countryn]])
 
   r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
+  r[r==0] <- NA
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
   provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
   if(!file.exists(sprintf("%s_cityScore.gpkg", countryn))){
@@ -87,7 +88,7 @@ for(countryn in countries){
 
 
     if(is.null(pts[[countryn]])){
-      r[r==0] <- NA
+
       r.df <- terra::as.data.frame(r, xy=T)
       r.df.sf <- sf::st_as_sf(r.df,coords = c("x", "y"))
       sf::st_crs(r.df.sf) <- terra::crs(r)
@@ -167,23 +168,94 @@ for(countryn in countries){
 
   output <- list(count=c(), totSuitability=c(), totCost=c() )
   count <- 0
-  k <- 30
-  init <- sample(1:nrow(city), k)
-  prop <- function(par){
-    new <- par
-    i <- sample(length(par),1)
-    new[i] <- sample(1:nrow(city),1)
-    new
+
+  n <- nrow(city)  # number of candidate rows
+  gain <- city$gains
+  loss <- city$losses
+  lambda <- 1
+  # k <- 300
+  # init <- sample(1:nrow(city), k)
+
+  init <-  rep(T, nrow(city))
+
+  ncities <- NROW(city)
+  prop <- function(x) {
+    r <- runif(1)
+    n <-    x == 1
+    nc0 <- which(!n)
+    nc1 <- which(n)
+
+    ## force to add a city if only one city left
+    if(length(nc1)<2){
+      i0 <- sample(nc0, 1)
+      x[i0] <- 1
+      return(x)
+    }
+    ## force to remove a city if all cities
+    if(length(nc1) >= ncities){
+      i1 <- sample(nc1, 1)
+      x[i1] <- 0
+      return(x)
+    }
+
+    i0 <- sample(nc0, 1)
+    i1 <- sample(nc1, 1)
+
+    if (r < 0.33 && length(x) > 1) {
+      # remove one city
+      x[i1] <- 0
+    } else if (r < 0.66) {
+      # add a city
+      x[i0] <- 1
+    } else {
+      # replace one city
+      x[i0] <- 1
+      x[i1] <- 0
+    }
+
+    x
   }
-  history <- list()
+  ## lambda is the unit cost of building a plant ... can be changed
+  objective <- function(idx, gain, loss, lambda=1) {
+
+    idx <- as.logical(idx)
+    # idx <- pmax(1, pmin(n, round(idx)))   # clip & round to 1..n
+    total_gain <- sum(gain[idx])
+    total_loss <- sum(loss[idx])
+
+    score <- total_gain - total_loss - lambda*sum(idx)
+    if(iter%%100==0){
+      cc <- city[idx,]
+      cc$score <- score
+      cc$ncities <- length(idx)
+      history[[as.integer(iter/100)]] <<- cc[,c("cityId","score", "ncities" )]
+    }
+    iter <<- iter + 1
+    # print(score)
+    return(-score)  # because optim minimizes by default
+  }
+  # history <- list()
   iter <- 1
+  n <- 1000
+  history <- vector("list", n)
+  # ## SANN simulated annhealing -------
   res <- optim(
     par = init,
-    fn = function(x) -score_fun4SANN(round(x)),
+    fn = function(x) objective(x, gain, loss, lambda),
     gr = prop,
     method = "SANN",
-    control = list(maxit = 10000, temp=50)
+    control = list(maxit = 20000, temp = 100, trace = TRUE)
   )
+  # best_x <- as.logical(round(res$par))
+  # best_rows <- city[res$par, ]
+
+  # res <- optim(
+  #   par = init,
+  #   fn = function(x) -score_fun4SANN(round(x)),
+  #   gr = prop,
+  #   method = "SANN",
+  #   control = list(maxit = 10000, temp=50)
+  # )
 
   ########## plot ----
   frames <- data.table::rbindlist(history,idcol = "iter")
@@ -192,22 +264,31 @@ for(countryn in countries){
   library(gganimate)
   frames <- sf::st_set_geometry(frames, value = frames$geom)
   frames$iter <- as.numeric(frames$iter)
+  frames$score <- as.numeric(frames$iter)
 
-
+  frames$scoreTot <- (frames$score - min(frames$score))/ diff(range(frames$score))
   library(viridis)
   p <- ggplot() +
+    # geom_spatraster(data = r, na.rm = T) +
+    # scale_fill_whitebox_c(
+    #   palette = "viridi",
+    #   n.breaks = 12,
+    #   guide = guide_legend(reverse = TRUE)
+    # ) +
     geom_sf(data =  provs,    fill = NA) +
     geom_sf(data = frames ,
                # aes(x=x, y=y),
-            aes(color = score),
+            aes(color = scoreTot),
                size=2) +
-    scale_color_viridis(option = "turbo") +
+    scale_color_viridis(option = "turbo", direction=-1) +
     coord_sf() +
     theme_minimal()+
     transition_manual(iter) +
-    shadow_null()
+    shadow_null() +
+    labs(title = "Iteration: {current_frame}/10000")
 
-  animate(p, fps=15,
+  # print(p)
+  animate(p, fps=10,
           width = 800,
           height = 600,
           renderer = ffmpeg_renderer("optimization.mp4") )
