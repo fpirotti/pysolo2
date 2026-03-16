@@ -146,22 +146,22 @@ for(countryn in countries){
   city$losses <- costsO
   history <- list()
   iter <- 1
-  score_fun4SANN <- function(cityid) {
-    cc<-city |> filter(cityId%in%cityid)
-
-    d <- as.matrix(dist(st_coordinates(cc)))
-    d[upper.tri(d, diag=TRUE)] <- NA
-    penaltyd <- sum(d/1000 < 100, na.rm=TRUE)
-    score <- sum(cc$gains)
-    penalty <- sum(cc$losses)
-    fina <- score*10  - (penalty+penaltyd/max(penaltyd))
-    cc$score <- fina
-    history[[iter]] <<- cc[,c("cityId","score")]
-    iter <<- iter + 1
-    # message(nrow(cc))
-    # message(fina)
-    fina
-  }
+  # score_fun4SANN <- function(cityid) {
+  #   cc<-city |> filter(cityId%in%cityid)
+  #
+  #   d <- as.matrix(dist(st_coordinates(cc)))
+  #   d[upper.tri(d, diag=TRUE)] <- NA
+  #   penaltyd <- sum(d/1000 < 100, na.rm=TRUE)
+  #   score <- sum(cc$gains)
+  #   penalty <- sum(cc$losses)
+  #   fina <- score*10  - (penalty+penaltyd/max(penaltyd))
+  #   cc$score <- fina
+  #   history[[iter]] <<- cc[,c("cityId","score")]
+  #   iter <<- iter + 1
+  #   # message(nrow(cc))
+  #   # message(fina)
+  #   fina
+  # }
 
   # hist(costsO)
   #hist(weights)
@@ -177,7 +177,6 @@ for(countryn in countries){
   # init <- sample(1:nrow(city), k)
 
   init <-  rep(T, nrow(city))
-
   ncities <- NROW(city)
   prop <- function(x) {
     r <- runif(1)
@@ -215,6 +214,10 @@ for(countryn in countries){
 
     x
   }
+
+
+  trace_values <- numeric(50000)
+  trace_ncities <- numeric(50000)
   ## lambda is the unit cost of building a plant ... can be changed
   objective <- function(idx, gain, loss, lambda=1) {
 
@@ -223,11 +226,16 @@ for(countryn in countries){
     total_gain <- sum(gain[idx])
     total_loss <- sum(loss[idx])
 
-    score <- total_gain - total_loss - lambda*sum(idx)
+
+    trace_ncities[[iter]] <<- sum(idx)
+    score <- total_gain*100 - total_loss*20 - lambda*trace_ncities[[iter]]
+
+    trace_values[[iter]] <<- score
     if(iter%%100==0){
       cc <- city[idx,]
       cc$score <- score
       cc$ncities <- length(idx)
+
       history[[as.integer(iter/100)]] <<- cc[,c("cityId","score", "ncities" )]
     }
     iter <<- iter + 1
@@ -236,7 +244,8 @@ for(countryn in countries){
   }
   # history <- list()
   iter <- 1
-  n <- 1000
+  n <- 3000
+
   history <- vector("list", n)
   # ## SANN simulated annhealing -------
   res <- optim(
@@ -244,7 +253,41 @@ for(countryn in countries){
     fn = function(x) objective(x, gain, loss, lambda),
     gr = prop,
     method = "SANN",
-    control = list(maxit = 20000, temp = 100, trace = TRUE)
+    control = list(maxit = 50000, temp = 100, trace = TRUE)
+  )
+
+  scale_factor <- max(trace_ncities) / max(trace_values)
+  offset <- min(trace_ncities) - min(trace_values) * scale_factor
+  p <- ggplot() +
+    geom_col(aes(x = 1:length(trace_ncities), y = trace_ncities, fill = "Cities"),
+             alpha = 0.5) +
+    geom_line(aes(x = 1:length(trace_ncities),  y = trace_values * scale_factor/1.5,
+                  color = "Score" ),
+              linewidth = 0.31) +
+    scale_y_continuous(
+      name = "Number of cities",
+      sec.axis = sec_axis(~ . / scale_factor, name = "Total score")
+    ) +
+    scale_fill_manual(
+      name = "Cities",
+      values = c("Cities" = "steelblue")
+    ) +
+
+    scale_color_manual(
+      name = "Score",
+      values = c("Score" = "red")
+    )  + guides(
+      fill = guide_legend(order = 1),
+      color = guide_legend(order = 2)
+    ) +
+    xlab("Iteration") +
+    theme_minimal()
+
+
+  ggsave(
+    sprintf("spainSANN.png", i),
+    plot = p,
+    width = 8, height = 5, dpi = 120
   )
   # best_x <- as.logical(round(res$par))
   # best_rows <- city[res$par, ]
@@ -269,7 +312,7 @@ for(countryn in countries){
   frames$scoreTot <- (frames$score - min(frames$score))/ diff(range(frames$score))
   library(viridis)
   p <- ggplot() +
-    # geom_spatraster(data = r, na.rm = T) +
+     # geom_spatraster(data = r, na.rm = T) +
     # scale_fill_whitebox_c(
     #   palette = "viridi",
     #   n.breaks = 12,
