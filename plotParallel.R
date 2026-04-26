@@ -22,23 +22,28 @@ makeHeat <- function(df.iter){
   kde_raster <- kde(
     points = df.iter_,
     band_width = radius,
-    weights = df.iter_$score,
-    grid = r, quiet=T
+    weights = df.iter_$scoreTot, scaled = T,
+    grid = r #, quiet=T
   )
   # plot(kde_raster)
   tr <- terra::rast(kde_raster)
   tr[tr==0] <- NA
+  tr
 }
 
-res <- mclapply(seq_along(times), function(i) {
+res <- mclapply((1:50), #seq_along(times),
+                function(i) {
   df.iter <- df[df$iter == times[i], ]
   rheat <- suppressMessages(makeHeat(df.iter))
+
   p <- ggplot(df, aes(color = scoreTot)) +
-     geom_spatraster(data =  rheat , na.rm = T) +
+     geom_spatraster(data =  rheat , na.rm = T ) +
     # scale_fill_whitebox_c( #breaks = round(seq(qq[[1]], qq[[2]], length.out=12)),
     #                       palette = "viridi") +
 
-    scale_fill_viridis_c(option = "inferno", direction=-1,   limits = score_range) +
+    scale_fill_viridis_c(option = "inferno",
+                         na.value = tail(inferno(256),1),
+                         direction = -1, limits= score_range) +
     geom_sf(data =  provs,  color="grey" ,   fill = NA) +
     # geom_sf(data = df.iter ,
     #         # aes(x=x, y=y),
@@ -49,7 +54,7 @@ res <- mclapply(seq_along(times), function(i) {
     theme_minimal()+
     labs(title = sprintf("Iteration: %02d/%d", i, n) )
 
-p
+
   ggsave(
     sprintf("frames/frame_%04d.png", i),
     plot = p,
@@ -57,5 +62,6 @@ p
   )
 
 }, mc.cores = 20)
-
-system("ffmpeg -framerate 1 -i frames/frame_%04d.png -pix_fmt yuv420p output.mp4")
+# ffmpeg -start_number 1 -i frames/frame_%04d.png -c:v libx264 out.mp4
+system("ffmpeg -y -framerate 5   -i frames/frame_%04d.png -pix_fmt yuv420p output.mp4")
+browseURL("output.mp4")

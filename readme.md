@@ -1,6 +1,8 @@
----
----
----
+# README
+
+Use the files pocForestalePrep.R and then pocForestaleOptim.R
+
+## Problem declaration
 
 The problem to solve is to select the optimal cities were to collect residual biomass from specific types of crops: vineyards and olive orchards.
 

@@ -12,34 +12,54 @@ library(parallel)
 
 library(ROI.plugin.glpk)
 
+cities <- sf::read_sf("data/cities3.gpkg") #|> select(3) #|> sf::st_transform(3035)
 
+# Download city center  ----
+## points for Spain, Italy, and Greece - uncomment if needed
+# library(giscoR)
+# countries <- c("ES", "IT", "EL") # Note: Greece is EL in Eurostat
+# lau_data <- gisco_get_communes(country = c("ES", "IT", "EL"), spatialtype="LB")
+# sf::write_sf(lau_data, "data/cities3.gpkg") #|> select(3) #|> sf::st_transform(3035)
 
-cities <- sf::read_sf("data/cities2.gpkg") #|> select(3) #|> sf::st_transform(3035)
+# nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
 
-nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
+biorefineries <- sf::read_sf("data/forest/Main Refineries_FINAL.shp") #|> sf::st_transform(3035)
 
-biorefineries <- sf::read_sf("data/Biorefineries.shp") #|> sf::st_transform(3035)
-companies <- sf::read_sf("data/Companies.shp")#|> sf::st_transform(3035)
-ports <- sf::read_sf("data/Ports_ES.shp")#|> sf::st_transform(3035)
+ports <- sf::read_sf("data/forest/Official Ports_FINAL.shp")#|> sf::st_transform(3035)
 
-maxDist <- 50000
+maxDist <- c(50000, 100000, 150000)
 
-biorefDist <- nabor::knn(sf::st_coordinates(biorefineries), sf::st_coordinates(cities), k=1 )  # fast radius neighbors
-companiesDist <- nabor::knn(sf::st_coordinates(companies), sf::st_coordinates(cities), k=1)  # fast radius neighbors
-portsDist <- nabor::knn(sf::st_coordinates(ports), sf::st_coordinates(cities), k=1)  # fast radius neighbors
+calculate_weight <- function(distance, max_dist ) {
+  weight <- 1 - (distance / max_dist)
+  return(pmax(0, weight)) # pmax is the vectorized version of max()
+}
 
-cities$score.compDists <-  companiesDist$nn.dists[,1]
-cities$score.biorefDists <- biorefDist$nn.dists[,1]
-cities$score.portsDists <-  portsDist$nn.dists[,1]
+biorefDist <- nabor::knn(sf::st_coordinates(sf::st_transform(biorefineries, 3035)),
+                         sf::st_coordinates(sf::st_transform(cities, 3035)), k=1 )  # fast radius neighbors
+# companiesDist <- nabor::knn(sf::st_coordinates(companies), sf::st_coordinates(cities), k=1)  # fast radius neighbors
+portsDist <-  nabor::knn(sf::st_coordinates(sf::st_transform(ports, 3035)),
+                            sf::st_coordinates(sf::st_transform(cities, 3035)), k=1 )
 
-cities$name<-cities$name_2
+# cities$score.compDists <-  companiesDist$nn.dists[,1]
+cities$score.biorefDistsT1 <- pmin(1,  biorefDist$nn.dists[,1] / maxDist[[1]])
+cities$score.biorefDistsT2 <- pmin(1,  biorefDist$nn.dists[,1] / maxDist[[2]])
+cities$score.biorefDistsT3 <- pmin(1,  biorefDist$nn.dists[,1] / maxDist[[3]])
+
+cities$score.portsDistsT1 <-  pmin(1,  portsDist$nn.dists[,1] / maxDist[[1]])
+cities$score.portsDistsT2 <-  pmin(1,  portsDist$nn.dists[,1] / maxDist[[2]])
+cities$score.portsDistsT3 <-  pmin(1,  portsDist$nn.dists[,1] / maxDist[[3]])
+
+cities$name<-cities$COMM_NAME
 
 pts <- list()
-load("pts.rda")
-countries <- unique(cities$Country)
+# load("pts.rda")
+
 
 df <- list()
 ccode <- list("Spain"="ES", "Greece"="EL", "Italy"="IT")
+cname <- names(ccode)
+names(cname) <- ccode
+countries <- cname[ unique(cities$CNTR_CODE) ]
 
 out_dir <- "images"
 for(countryn in countries){
@@ -48,24 +68,9 @@ for(countryn in countries){
     dir.create(dirout)
   }
   message(countryn)
-  # Read all PNGs in order
-  # frames <- list.files(path = dirout, pattern = "frame.*\\.png$", full.names = TRUE)
-  # imgs <- image_read(frames)
-  # imgs <- image_background(imgs, "white")
-  # imgs <- image_quantize(imgs, max = 32, colorspace = "rgb")
-  #
-  # # # Animate at 10 frames per second
-  # animation <- image_animate(imgs, fps = 4,optimize = T, dispose ="background")
-  #
-  # # Save the GIF
-  # image_write(animation, sprintf("animation2_%s.gif", countryn) )
-  #
-  # next
-  # if(countryn!="Spain") next
-
-  city <- cities |> filter(Country==countryn)
+  city <- cities |> filter(CNTR_ID== ccode[[countryn]])
   city$cityId <- 1:nrow(city)
-  message(nrow(city))
+  message(nrow(city), " cities in ", countryn)
   borders <- nuts |> filter(LEVL_CODE==0)
   provs <- nuts |> filter(LEVL_CODE==2) |>
     filter(CNTR_CODE==ccode[[countryn]])
@@ -76,9 +81,34 @@ for(countryn in countries){
   }
   # r <- terra::rast(sprintf("data/AgriSuitabilitPysolo_%s.tif", countryn))
   r[r==0] <- NA
+
+
+  if(is.null(pts[[countryn]])){
+
+    r.df <- terra::as.data.frame(r, xy=T)
+    r.df.sf <- sf::st_as_sf(r.df,coords = c("x", "y"))
+    sf::st_crs(r.df.sf) <- terra::crs(r)
+    pts[[countryn]] <- r.df.sf
+    save(pts, file="pts.rda")
+  }
+
   # plot(r)
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
   provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
+  city2 <- city[!st_intersects(city, st_union(provs), sparse = FALSE), ]
+
+  cities <- cities %>%
+    filter(!COMM_ID %in% city2$COMM_ID)
+  sf::write_sf(lau_data, "data/cities3.gpkg")
+  message(nrow(city2), " cities in ", countryn)
+  message(nrow(cities), " TOT cities ")
+  next
+
+
+
+
+
+
   if(!file.exists(sprintf("%s_cityScore.gpkg", countryn))){
 
     rDNI <- terra::rast(sprintf("data/DNI_%s.tif", countryn))
@@ -89,21 +119,6 @@ for(countryn in countries){
 
     # r[r==0] <- NA
     message(countryn)
-
-
-
-
-
-    if(is.null(pts[[countryn]])){
-
-      r.df <- terra::as.data.frame(r, xy=T)
-      r.df.sf <- sf::st_as_sf(r.df,coords = c("x", "y"))
-      sf::st_crs(r.df.sf) <- terra::crs(r)
-      pts[[countryn]] <- r.df.sf
-      save(pts, file="pts.rda")
-    }
-
-
 
     vor <- sf::st_voronoi( st_union(city) |> sf::st_transform(3035)  ) |> sf::st_transform(4326)
     vor_sf <- st_collection_extract(vor)
@@ -130,14 +145,8 @@ for(countryn in countries){
       pt <- pts_with_poly |> filter(cityId==id)
       dist<- sf::st_distance(pt, ct)
       dist <- as.numeric(dist)
-
-      if(sum(dist == 0)>0){
-        dist[ dist == 0] <- 1e6
-      }
-      w <- 1 / (dist^1)
-      w[dist > maxDist ] <- 0
+      w <- calculate_weight(dist, maxDist)
       sum(pt$sum * w)
-      # sum(pt$mean * w)
     } ) #, mc.cores=100)
 
     city$score.suitability <- unlist(suit)
@@ -148,8 +157,7 @@ for(countryn in countries){
 
   n <- length(city$score.suitability)
   weights <- city$score.suitability
-  costsO <- (city$score.compDists/max(city$score.compDists) +
-               city$score.biorefDists/max(city$score.biorefDists) +
+  costsO <- (  city$score.biorefDists/max(city$score.biorefDists) +
                city$score.portsDists/max(city$score.portsDists) )
   #normalizzo
   costsO <- costsO / max(costsO)
@@ -190,7 +198,8 @@ for(countryn in countries){
 
   init <-  rep(T, nrow(city))
   ncities <- NROW(city)
-  prop <- function(x) {
+
+  proponentFunction <- function(x) {
     r <- runif(1)
     n <-    x == 1
     nc0 <- which(!n)
@@ -262,7 +271,15 @@ for(countryn in countries){
   res <- optim(
     par = init,
     fn = function(x) objective(x, gain, loss, lambda),
-    gr = prop,
+    gr = proponentFunction,
+    method = "SANN",
+    control = list(maxit = 50000, temp = 100, trace = TRUE)
+  )
+
+  res <- optim(
+    par = init,
+    fn = function(x) objective(x, gain, loss, lambda),
+    gr = proponentFunction,
     method = "SANN",
     control = list(maxit = 50000, temp = 100, trace = TRUE)
   )

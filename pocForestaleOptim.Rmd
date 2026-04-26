@@ -1,0 +1,98 @@
+---
+title: "Spatial Optimization for Pysolo"
+author: "Erico Kutchartt, Francesco Pirotti"
+date: "2026-04-26"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(terra)
+library(sf)
+library(tidyverse)
+library(spopt)
+library(tidyverse)
+library(mapgl)
+library(viridisLite)
+library(htmlwidgets)
+## biomass suitability color scale
+val_range <- c(0, 0.1, 0.2, 0.3)
+v_cols <- viridisLite::viridis(4)
+
+nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
+source("pocForestaleFunctions.R")
+sinkf <- file("output/benchmark.csv", "a")
+if(!file.exists("pts.rda")){
+  stop("Please run pocForestalePrep.R first")
+}
+if(!exists("pts")) {
+  load(file="pts.rda")
+}
+if(!file.exists("data/cities3.gpkg")){
+  stop("Please run pocForestalePrep.R first")
+}
+
+cities <- sf::read_sf("data/cities3.gpkg") #|> select(3) #|> sf::st_transform(3035)
+df <- list()
+ccode <- list( "Greece"="EL", "Italy"="IT", "Spain"="ES")
+cname <- names(ccode)
+names(cname) <- ccode
+countries <- cname[ unique(cities$CNTR_CODE) ]
+
+
+```
+
+## Prepare data
+
+PYSOLO DATA PREPARATION
+
+```{r processit, echo=FALSE, results="asis"}
+
+
+  cat("Country\tN cities\tTime of processing\n\n")
+
+for(countryn in names(ccode)){
+  # dirout <- sprintf("%s/%s", out_dir, countryn)
+  # if(!dir.exists(dirout)){
+  #   dir.create(dirout)
+  # }
+  cat(countryn, "\t")
+  candidateCities <- cities |> filter(CNTR_ID==ccode[[countryn]])
+  cat(nrow(candidateCities), " candidate cities ...\n\n")
+  for(nf in c(5,10,15,20)){
+      st <- system.time({
+        result_pmedian <-   p_median(
+          demand = pts[[countryn]],
+          facilities = candidateCities[1:100,],
+          n_facilities = nf,
+          weight_col = "sum"
+        )
+      })
+      Country,NCandidatesCities,NBiomassPts,NOutput,Solver,Time(s)
+
+      cat(
+        paste(countryn,nrow(pts[[countryn]]),nf,"p_median",st[[3]], sep=","),
+        file=sinkf
+        )
+  }
+
+}
+  cat(nrow(candidateCities), " candidate cities ...\n\n")
+  
+  plotHTML(result_pmedian, sprintf("opt_%s_pmedian", countryn) )
+  
+  # 
+  # result_pmedian <-  cflp(
+  #     demand = pts[[countryn]][1:100,],
+  #     facilities = candidateCities,
+  #     n_facilities = 44,  # Let solver determine optimal number
+  #     weight_col = "sum" ,
+  #     capacity_col = "capacity",
+  #     facility_cost_col = "costTotT1"
+  #   )
+
+}
+
+close(sinkf)
+```
+ 
