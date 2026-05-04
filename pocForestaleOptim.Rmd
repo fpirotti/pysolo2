@@ -2,7 +2,9 @@
 title: "Spatial Optimization for Pysolo"
 author: "Erico Kutchartt, Francesco Pirotti"
 date: "2026-04-26"
-output: pdf_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -15,6 +17,7 @@ library(tidyverse)
 library(mapgl)
 library(viridisLite)
 library(htmlwidgets)
+library(dplyr)
 ## biomass suitability color scale
 val_range <- c(0, 0.1, 0.2, 0.3)
 v_cols <- viridisLite::viridis(4)
@@ -32,7 +35,7 @@ if(!file.exists("data/cities3.gpkg")){
   stop("Please run pocForestalePrep.R first")
 }
 
-cities <- sf::read_sf("data/cities3.gpkg") #|> select(3) #|> sf::st_transform(3035)
+cities <- sf::read_sf("data/citiesFinal.gpkg") #|> select(3) #|> sf::st_transform(3035)
 df <- list()
 ccode <- list( "Greece"="EL", "Italy"="IT", "Spain"="ES")
 cname <- names(ccode)
@@ -44,7 +47,11 @@ countries <- cname[ unique(cities$CNTR_CODE) ]
 
 ## Prepare data
 
-PYSOLO DATA PREPARATION
+This is a classic large-scale Facility Location Problem (FLP), specifically a variation of the Capacitated Plant Location Problem with a "winner-take-all" constraint on the biomass points.
+
+### The "Greedy" Heuristic (Finding the "Ideal Number")
+
+To find the ideal number of cities without running complex solvers:Calculate Marginal Utility: For each city, calculate its potential profit if it took all nearby unclaimed biomass.Rank and Pick: Pick the city with the highest profit. Mark its biomass points as "taken."Iterate: Repeat until the next best city's Gain ($Y$) minus Loss ($X$) and transport costs becomes negative.The Stop Point: The moment your next best city adds more cost than it brings in biomass value, you have found your Ideal Number.
 
 ```{r processit, echo=FALSE, results="asis"}
 
@@ -56,40 +63,27 @@ for(countryn in names(ccode)){
   # if(!dir.exists(dirout)){
   #   dir.create(dirout)
   # }
-  cat(countryn, "\t")
-  candidateCities <- cities |> filter(CNTR_ID==ccode[[countryn]])
-  cat(nrow(candidateCities), " candidate cities ...\n\n")
-  for(nf in c(5,10,15,20)){
-      st <- system.time({
-        result_pmedian <-   p_median(
-          demand = pts[[countryn]],
-          facilities = candidateCities[1:100,],
-          n_facilities = nf,
-          weight_col = "sum"
-        )
-      })
-      Country,NCandidatesCities,NBiomassPts,NOutput,Solver,Time(s)
+  cat("## ", countryn, "\t\n\n")
+  candidateCitiest <- sf::read_sf(sprintf("%s_cityScore3.gpkg", countryn))
 
-      cat(
-        paste(countryn,nrow(pts[[countryn]]),nf,"p_median",st[[3]], sep=","),
-        file=sinkf
-        )
+  
+  candidateCities <- candidateCitiest |> filter(dni > 1400)  
+  cat("### ", nrow(candidateCities), "/",nrow(candidateCitiest), " candidate cities after DNI filter at 1400\n\n")
+ 
+  for(i in 1:3){
+      vv <- cbind(sf::st_coordinates(candidateCities)/10, 
+              candidateCities[[sprintf("sumBiomassSuitabilityT%dn", i)]])
+      km <- kmeans(vv, 10)
+      candidateCities$k <- km$cluster
+      
+      cluster_bounds <- candidateCities %>%
+        group_by(k) %>%
+        summarize(geometry = st_union(geom)) %>% # Merge points in same cluster
+        st_convex_hull()                             # Draw the boundary around them
+      
+      suppressWarnings(plotCluster(candidateCities, cluster_bounds, ret=T, ccode[[countryn]]) )
   }
 
-}
-  cat(nrow(candidateCities), " candidate cities ...\n\n")
-  
-  plotHTML(result_pmedian, sprintf("opt_%s_pmedian", countryn) )
-  
-  # 
-  # result_pmedian <-  cflp(
-  #     demand = pts[[countryn]][1:100,],
-  #     facilities = candidateCities,
-  #     n_facilities = 44,  # Let solver determine optimal number
-  #     weight_col = "sum" ,
-  #     capacity_col = "capacity",
-  #     facility_cost_col = "costTotT1"
-  #   )
 
 }
 

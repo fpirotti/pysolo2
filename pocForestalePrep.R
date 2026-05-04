@@ -12,27 +12,23 @@ library(parallel)
 
 library(ROI.plugin.glpk)
 
-cities <- sf::read_sf("data/cities3.gpkg") #|> select(3) #|> sf::st_transform(3035)
-
+cities <- sf::read_sf("data/cities.gpkg") #|> select(3) #|> sf::st_transform(3035)
+cities <- cities |> select(!c(LAT, LON, TRUE_FLAG, COMM_NAME, NSI_CODE, NAME_NSI))
 # Download city center  ----
 ## points for Spain, Italy, and Greece - uncomment if needed
 # library(giscoR)
 # countries <- c("ES", "IT", "EL") # Note: Greece is EL in Eurostat
 # lau_data <- gisco_get_communes(country = c("ES", "IT", "EL"), spatialtype="LB")
-# sf::write_sf(lau_data, "data/cities3.gpkg") #|> select(3) #|> sf::st_transform(3035)
+# sf::write_sf(lau_data, "data/cities.gpkg") #|> select(3) #|> sf::st_transform(3035)
 
-# nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
-
+ nuts <- sf::read_sf("/archivio/shared/geodati/vector/NUTS_2024_all_4326v2.gpkg")
+rk <- matrix(rep(1, 81), 9, 9)
 biorefineries <- sf::read_sf("data/forest/Main Refineries_FINAL.shp") #|> sf::st_transform(3035)
 
 ports <- sf::read_sf("data/forest/Official Ports_FINAL.shp")#|> sf::st_transform(3035)
 
 maxDist <- c(50000, 100000, 150000)
 
-calculate_weight <- function(distance, max_dist ) {
-  weight <- 1 - (distance / max_dist)
-  return(pmax(0, weight)) # pmax is the vectorized version of max()
-}
 
 biorefDist <- nabor::knn(sf::st_coordinates(sf::st_transform(biorefineries, 3035)),
                          sf::st_coordinates(sf::st_transform(cities, 3035)), k=1 )  # fast radius neighbors
@@ -49,13 +45,11 @@ cities$score.portsDistsT1 <-  pmin(1,  portsDist$nn.dists[,1] / maxDist[[1]])
 cities$score.portsDistsT2 <-  pmin(1,  portsDist$nn.dists[,1] / maxDist[[2]])
 cities$score.portsDistsT3 <-  pmin(1,  portsDist$nn.dists[,1] / maxDist[[3]])
 
-cities$costTotT1 <- mean(c(cities$score.portsDistsT1, cities$score.biorefDistsT1))
-cities$costTotT2 <- mean(c(cities$score.portsDistsT2, cities$score.biorefDistsT2))
-cities$costTotT3 <- mean(c(cities$score.portsDistsT3, cities$score.biorefDistsT3))
+cities$costTotT1 <-  (cities$score.portsDistsT1+cities$score.biorefDistsT1)/2
+cities$costTotT2 <-  (cities$score.portsDistsT2+cities$score.biorefDistsT2)/2
+cities$costTotT3 <-  (cities$score.portsDistsT3+cities$score.biorefDistsT3)/2
 
-cities$sumBiomassSuitabilityT1 <- 0
-cities$sumBiomassSuitabilityT2 <- 0
-cities$sumBiomassSuitabilityT3 <- 0
+biom <- terra::rast("/archivio/shared/geodati/raster/Biomass/ESACCI-BIOMASS-L4-AGB-MERGED-100m-2022-fv6.0.nc")
 
 cities$name<-cities$COMM_NAME
 cities$dni <- 0
@@ -64,7 +58,7 @@ pts <- list()
 
 
 df <- list()
-ccode <- list("Spain"="ES", "Greece"="EL", "Italy"="IT")
+ccode <- list("Greece"="EL", "Italy"="IT", "Spain"="ES")
 cname <- names(ccode)
 names(cname) <- ccode
 countries <- cname[ unique(cities$CNTR_CODE) ]
@@ -92,17 +86,29 @@ for(countryn in countries){
 
 
   if(is.null(pts[[countryn]])){
-    r.df <- terra::as.data.frame(r, xy=T)
+    r.df <- terra::as.data.frame(r, xy=T, cells=F)
     r.df.sf <- sf::st_as_sf(r.df,coords = c("x", "y"))
-    sf::st_crs(r.df.sf) <- terra::crs(r)
-    pts[[countryn]] <- r.df.sf
+    message("Start extraction..." , Sys.time())
+
+    nr <- terra::crop( biom , r)
+    nr2agb <- terra::aggregate(nr[[1]], 11, fun="sum")
+    nr2sd <- terra::aggregate(nr[[2]], 11, fun=function(x){ sum(x^2)^0.5 }, cores=20)
+    biomassNew <- c(nr2agb, nr2sd)
+    names(biomassNew) <- c("agb", "agb_sd")
+    agbs <- terra::extract(biomassNew, r.df.sf)
+
+    r.df.sf2 <- cbind(r.df.sf, agbs)
+
+    sf::st_crs(r.df.sf2) <- terra::crs(r)
+    pts[[countryn]] <- r.df.sf2
     save(pts, file="pts.rda")
   }
-
+  next
   # plot(r)
   r_extent <- as.polygons(ext(r), crs = crs(r)) |> st_as_sf()
   provs <- provs[st_intersects(provs, r_extent, sparse = FALSE), ]
   city2 <- city[!st_intersects(city, st_union(provs), sparse = FALSE), ]
+  city  <- city[st_intersects(city, st_union(provs), sparse = FALSE), ]
 
   cities <- cities %>%
     filter(!COMM_ID %in% city2$COMM_ID)
@@ -110,88 +116,59 @@ for(countryn in countries){
   rDNI <- terra::rast(sprintf("data/DNI_%s.tif", countryn))
   dniCity <- terra::extract(rDNI, city, ID=F)
   city$dni <- dniCity[,1]
-  cities$dni[match(city$COMM_ID, cities$COMM_ID)]  <- city$dni
+  mm1<- which(cities$COMM_ID%in%city$COMM_ID)
+  cities$dni[mm1]  <- city$dni
 
   sf::write_sf(cities, "data/cities3.gpkg")
   message(nrow(city2), " cities in ", countryn)
   message(nrow(cities), " TOT cities ")
 
-
-
   if(!file.exists(sprintf("%s_cityScore3.gpkg", countryn))){
-    city <- city |> filter(dni>1400)
-    message(nrow(city))
 
-    # r[r==0] <- NA
     message(countryn)
 
-    # vor <- sf::st_voronoi( st_union(city) |> sf::st_transform(3035)  ) |> sf::st_transform(4326)
-    # vor_sf <- st_collection_extract(vor)
-    # vor_sf <- st_sf(geometry = vor_sf)
-    #
-    # vor_sf <- st_join(vor_sf, city, join = st_intersects)
-
-    #sf::write_sf(vor_sf, "vor.sf.gpkg")
-
-    message("Intersection")
-    # pts_with_poly <- st_join(pts[[countryn]], vor_sf[,c( "cityId")], join = st_intersects)
-    # # pts_with_poly
     sf_use_s2(F)
 
     message("start lapply")
     ncities <- length(city$cityId)
     nnn <- 0
-    suit <- mclapply( city$cityId, function(id){
-      nnn <<- nnn+1
-      #if(as.integer(id)%% as.integer((ncities/100))==0){
-        print(sprintf("%d / %d", nnn,  ncities))
-      #}
-      ct <- city |> filter(cityId==id)
-      pt <- pts[[countryn]] #pts_with_poly |> filter(cityId==id)
-      dist<- sf::st_distance(pt, ct)
-      dist <- as.numeric(dist)
-      w1 <- calculate_weight(dist, maxDist[[1]])
-      w2 <- calculate_weight(dist, maxDist[[2]])
-      w3 <- calculate_weight(dist, maxDist[[3]])
-      c(sumBiomassSuitabilityT1=sum(pt$sum * w1),
-           sumBiomassSuitabilityT2=sum(pt$sum * w2),
-           sumBiomassSuitabilityT3=sum(pt$sum * w3)
-           )
-    }  , mc.cores=120)
+    suit <- mclapply( city$cityId, distanceMatrix , mc.cores=120)
 
 # FOREST SUITABILITY SUM AT CITY -----
-    df <- do.call(rbind,suit)
+    dfc <- do.call(rbind,suit)
+    scores <- cbind(city, dfc)
+    # mm <- which(cities$COMM_ID %in%scores$COMM_ID)
+    # cities$sumBiomassSuitabilityT1[mm]  <-  scores$sumBiomassSuitabilityT1
+    # cities$sumBiomassSuitabilityT2[mm]  <-  scores$sumBiomassSuitabilityT2
+    # cities$sumBiomassSuitabilityT3[mm]  <-  scores$sumBiomassSuitabilityT3
 
-    scores <- cbind(city, df)
-
-    cities$score.biomassSuitabilityT1[match(scores$COMM_ID, cities$COMM_ID)]  <-
-      scores$sumBiomassSuitabilityT1
-    cities$score.biomassSuitabilityT2[match(score.biomassSuitability$COMM_ID, cities$COMM_ID)]  <-
-      score.biomassSuitability$sumBiomassSuitabilityT2
-    cities$score.biomassSuitabilityT3[match(score.biomassSuitability$COMM_ID, cities$COMM_ID)]  <-
-      score.biomassSuitability$sumBiomassSuitabilityT3
-
-    sf::write_sf(city, sprintf("%s_cityScore.gpkg", countryn))
+    # sf::write_sf(cities, "data/cities3.gpkg")
+    scores$sumBiomassSuitabilityT1n <- scores$sumBiomassSuitabilityT1 /
+      max(scores$sumBiomassSuitabilityT1)
+    scores$sumBiomassSuitabilityT2n <- scores$sumBiomassSuitabilityT2 /
+      max(scores$sumBiomassSuitabilityT2)
+    scores$sumBiomassSuitabilityT3n <- scores$sumBiomassSuitabilityT3 /
+      max(scores$sumBiomassSuitabilityT3)
+    sf::write_sf(scores, sprintf("%s_cityScore3.gpkg", countryn))
   } else {
-    city <- sf::read_sf(sprintf("%s_cityScore.gpkg", countryn))
+    message(countryn, " already done!")
+    scores <-  sf::read_sf(sprintf("%s_cityScore3.gpkg", countryn))
+    scores$sumBiomassSuitabilityT1n <- scores$sumBiomassSuitabilityT1 /
+      max(scores$sumBiomassSuitabilityT1)
+    scores$sumBiomassSuitabilityT2n <- scores$sumBiomassSuitabilityT2 /
+      max(scores$sumBiomassSuitabilityT2)
+    scores$sumBiomassSuitabilityT3n <- scores$sumBiomassSuitabilityT3 /
+      max(scores$sumBiomassSuitabilityT3)
+
+    sf::write_sf(scores, sprintf("%s_cityScore3.gpkg", countryn))
+    # city <- sf::read_sf(sprintf("%s_cityScore3.gpkg", countryn))
   }
-
-
-  next
-
+  df[[countryn]] <-  sf::read_sf(sprintf("%s_cityScore3.gpkg", countryn))
 
 }
 
 dfFinal <- data.table::rbindlist(df, idcol = "Country")
-dfFinal$ratio <- dfFinal$Suitability/dfFinal$Cost
-
-dfFinal <- dfFinal |> dplyr::group_by(Country) |>
-  dplyr::mutate(UnitCost = row_number(),
-                NcitiesNorm = Ncities/max(Ncities)*100,
-                CostNorm = Cost/max(Cost)*100,
-                SuitabilityNorm = Suitability/max(Suitability)*100,
-                title = sprintf("%s (%d cities near biomass)", Country, max(Ncities)))
-
+sf::write_sf(dfFinal, "data/citiesFinal.gpkg")
 # dfFinal$UnitCost <- 0:(nrow(dfFinal)-1)%%43
 
 # save(dfFinal, file="dfFinal.rda")
