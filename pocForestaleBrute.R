@@ -103,12 +103,10 @@ next best city will be worth adding.")
           totBiomassSD  = (sum(pt$agb_sd[ num.free.cells ]^2))^0.5,
           avgBiomassXha  = sum(pt$agb[ num.free.cells ]) / sum( num.free.cells ) / 100,
           avgBiomassSD_Xha  = (sum(pt$agb_sd[ num.free.cells ]^2))^0.5 / sum( num.free.cells )^0.5 / 10,
-          cumGain = cumCost2,
-          marGain  = marCost2,
-          cumGain1 = cumCost1,
-          marGain1 = marCost1,
-          cumGain2 = cumCost2,
-          marGain2 = marCost2,
+          cumGain = sum(candidateCities$tBiom[bestC]),
+          marGain  = sum(candidateCities$tBiom[wmax]),
+          cumCostUnit = sum(candidateCities[[sprintf("costTotT%d", i)]][bestC]),
+          marCostUnit = sum(candidateCities[[sprintf("costTotT%d", i)]][wmax]),
           kmThreshold = as.integer(maxDist[[i]]/1000)
         )
 

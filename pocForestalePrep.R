@@ -91,8 +91,9 @@ for(countryn in countries){
     message("Start extraction..." , Sys.time())
 
     nr <- terra::crop( biom , r)
-    nr2agb <- terra::aggregate(nr[[1]], 11, fun="sum")
-    nr2sd <- terra::aggregate(nr[[2]], 11, fun=function(x){ sum(x^2)^0.5 }, cores=20)
+    nr2agb <- terra::aggregate(nr[[1]], 11, fun="sum", na.rm=TRUE)
+    nr2sd <- terra::aggregate(nr[[2]], 11, fun=function(x){ sum(x^2, na.rm=TRUE)^0.5 },
+                              cores=20)
     biomassNew <- c(nr2agb, nr2sd)
     names(biomassNew) <- c("agb", "agb_sd")
     agbs <- terra::extract(biomassNew, r.df.sf)
